@@ -28,6 +28,12 @@ services:
       - "DB_REPO_URL=${DB_REPO_URL:?DB_REPO_URL is required}"
       - "DB_DUMP_PATH=${DB_DUMP_PATH:?DB_DUMP_PATH is required}"
       - DATABASE_URL=postgres://postgres@127.0.0.1:5432/sandbox_db
+      # django-environ trio the backend's settings demand with NO defaults
+      # (every other env() call has one). Values are hardcoded sandbox-only —
+      # DJANGO_SECRET_KEY is a random throwaway, never shared.
+      - DJANGO_READ_DOT_ENV_FILE=1
+      - USE_DOCKER=yes
+      - DJANGO_SECRET_KEY=zg4dQ1kGxpsPNqKqNaIZ7fzMvaX5HZUffDCmn2ybj1RSrBbzWbbZVyP-1VnyaRVYm1c
       - "GIT_USER_NAME=${GIT_USER_NAME:?GIT_USER_NAME is required}"
       - "GIT_USER_EMAIL=${GIT_USER_EMAIL:?GIT_USER_EMAIL is required}"
       - "BACKEND_PROJECT_DIR=${BACKEND_PROJECT_DIR:?BACKEND_PROJECT_DIR is required}"

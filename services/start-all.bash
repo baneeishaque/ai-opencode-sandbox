@@ -52,10 +52,29 @@ if [ -d "$REPO_ROOT/backend/$BACKEND_PROJECT_DIR" ]; then
   python3 -m venv .venv || true
   . .venv/bin/activate
   pip install --no-cache-dir -r requirements/base.txt || true
-  pip install --no-cache-dir -r requirements/local.txt || true
+  # requirements/local.txt is UTF-16 encoded and pins
+  # google-api-python-client==1.4.1 (a 2017 sdist that breaks modern pip's
+  # metadata build, aborting the whole install mid-file — everything after
+  # line 81 silently never installs). Patch a UTF-8 copy to /tmp and install
+  # that: replace the dead pin with the latest 2.x. psycopg2 + quickfix have
+  # no binary wheels and compile via the C toolchain baked into the image.
+  python3 - <<'PATCH_LOCAL_TXT' || true
+from pathlib import Path
+text = Path("requirements/local.txt").read_bytes().decode("utf-16")
+text = text.replace("google-api-python-client==1.4.1", "google-api-python-client==2.198.0")
+Path("/tmp/local-sandbox.txt").write_text(text, encoding="utf-8")
+PATCH_LOCAL_TXT
+  pip install --no-cache-dir -r /tmp/local-sandbox.txt || true
   # Backend imports stripe unconditionally in config/settings/base.py but
   # ships no requirement pin — sandbox installs a known-good version.
   pip install --no-cache-dir stripe==15.4.0 || true
+  # Same unguarded-import pattern, resolved during the first boot attempts:
+  # apps/paper_app/views.py:79 imports nasdaqdatalink (PyPI project name is
+  # "nasdaq-data-link"; the import name "nasdaqdatalink" is not a project) and
+  # download_nasdsq_prices.py:46 imports pyarrow.parquet. Pinned to the exact
+  # versions verified in the sandbox venv.
+  pip install --no-cache-dir nasdaq-data-link==1.0.4 || true
+  pip install --no-cache-dir pyarrow==25.0.0 || true
   nohup python manage.py runserver 0.0.0.0:8000 > /workspace/backend.log 2>&1 &
   cd "$REPO_ROOT"
 fi
@@ -64,6 +83,9 @@ fi
 if [ -d "$REPO_ROOT/frontend" ]; then
   cd "$REPO_ROOT/frontend"
   npm ci || true
+  # CRA dev-server OOM: webpack bundling exceeded node's default ~2GB old-space
+  # heap cap (FATAL ERROR: JavaScript heap out of memory). Raise the heap.
+  export NODE_OPTIONS=--max-old-space-size=4096
   nohup npm run start -- --host 0.0.0.0 > /workspace/frontend.log 2>&1 &
   cd "$REPO_ROOT"
 fi

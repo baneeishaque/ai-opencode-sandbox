@@ -34,10 +34,15 @@ if [ ! -f "$RUNNER_DIR/run.sh" ]; then
   tar xzf "$RUNNER_TAR"
 fi
 
-./config.sh --unattended --url "$RUNNER_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --work "$RUNNER_WORKDIR"
+# GitHub's config.sh refuses EUID 0 ("Must not run with sudo") — everything
+# runner-owned runs via `su runner -c` after chowning /runner (download and
+# extract stay root-side; the container starts as root).
+chown -R runner:runner /runner
+
+su -s /bin/bash runner -c "./config.sh --unattended --url \"$RUNNER_URL\" --token \"$RUNNER_TOKEN\" --name \"$RUNNER_NAME\" --work \"$RUNNER_WORKDIR\""
 
 cleanup() {
-  ./config.sh remove --unattended --token "$RUNNER_TOKEN" || true
+  su -s /bin/bash runner -c "./config.sh remove --unattended --token \"$RUNNER_TOKEN\"" || true
 }
 trap cleanup EXIT
 
@@ -46,5 +51,5 @@ if [ -n "$GIT_PUSH_TOKEN" ]; then
   export GIT_PUSH_TOKEN
 fi
 
-./run.sh
+su -s /bin/bash runner -c "./run.sh"
 } 2>&1 | tee /var/log/runner-entrypoint.log

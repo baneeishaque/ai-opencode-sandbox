@@ -64,6 +64,12 @@ RUN set -o pipefail \
      2>&1 | tee /var/log/build/apt-install.log \
   && rm -rf /var/lib/apt/lists/*
 
+# GitHub's runner refuses to run as root ("Must not run with sudo", EUID
+# check in config.sh). Standalone image (no runner-base), so it gets the
+# runner user itself; the entrypoint chowns /runner and runs config.sh /
+# run.sh via `su runner -c`.
+RUN useradd -m -s /bin/bash runner
+
 WORKDIR /runner
 COPY runner/entrypoint.bash /runner/entrypoint.bash
 RUN chmod +x /runner/entrypoint.bash

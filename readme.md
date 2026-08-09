@@ -1918,7 +1918,11 @@ RUN test -n "$GITHUB_PAT" \
 ENV DEBIAN_FRONTEND=noninteractive
 
 # System deps: Chromium runtime libs, Postgres server (ephemeral sandbox DB),
-# git + ca-certificates (runtime), curl (build-time only, purged below)
+# git + ca-certificates (runtime), curl (build-time only, purged below), and
+# the C toolchain (build-essential python3-dev libpq-dev swig) so the
+# backend's pip install can COMPILE the packages that have no binary wheels:
+# psycopg2 (Django's postgres driver, definitely imported) and quickfix
+# (builds with g++ + swig). Keeps upstream requirements text byte-identical.
 #
 # Reproducibility: the entire apt layer is pinned to a dated Debian snapshot
 # (2026-08-01), freezing git, postgresql-17, and every transitive lib to exact
@@ -1936,6 +1940,7 @@ RUN set -o pipefail \
   && apt-get update 2>&1 | tee /var/log/build/apt-update.log \
   && apt-get install -y --no-install-recommends curl ca-certificates git git-lfs xz-utils \
      postgresql-17 \
+     build-essential python3-dev libpq-dev swig \
      libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libx11-6 libxcomposite1 libxrandr2 libxdamage1 libxss1 libasound2 libgbm1 \
      libdbus-1-3 libdrm2 libxkbcommon0 libxcb1 libxext6 libxfixes3 libxshmfence1 libxtst6 \
      libpango-1.0-0 libcairo2 libatspi2.0-0 libnspr4 libglib2.0-0 fonts-liberation \
@@ -2074,6 +2079,12 @@ RUN set -o pipefail \
   && apt-get install -y --no-install-recommends curl git tar libicu70 libssl3 libkrb5-3 \
      2>&1 | tee /var/log/build/apt-install.log \
   && rm -rf /var/lib/apt/lists/*
+
+# GitHub's runner refuses to run as root ("Must not run with sudo", EUID
+# check in config.sh). Everything runner-owned lives under /runner; the
+# entrypoint chowns /runner and runs config.sh/run.sh via `su runner -c`.
+# runner-frontend, runner-e2e and runner-node inherit this user.
+RUN useradd -m -s /bin/bash runner
 
 WORKDIR /runner
 COPY runner/entrypoint.bash /runner/entrypoint.bash
