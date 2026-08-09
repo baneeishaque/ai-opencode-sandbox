@@ -1,0 +1,186 @@
+# All images are pinned to linux/amd64: every baked binary (node, opencode,
+# actions-runner) is an x64 official tarball, mirroring GitHub-hosted runner
+# hardware. On Apple Silicon this runs under OrbStack's amd64 emulation.
+services:
+  services-agent:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: images/services-agent/Dockerfile
+      args:
+        - "GITHUB_PAT=${GITHUB_PAT:?GITHUB_PAT is required — set in .env or shell}"
+        - "AI_REPO_URL=${AI_REPO_URL:?AI_REPO_URL is required}"
+        - "FRONTEND_REPO_URL=${FRONTEND_REPO_URL:?FRONTEND_REPO_URL is required}"
+        - "BACKEND_REPO_URL=${BACKEND_REPO_URL:?BACKEND_REPO_URL is required}"
+        - "TESTS_REPO_URL=${TESTS_REPO_URL:?TESTS_REPO_URL is required}"
+        - "DB_REPO_URL=${DB_REPO_URL:?DB_REPO_URL is required}"
+        - "DB_DUMP_PATH=${DB_DUMP_PATH:?DB_DUMP_PATH is required}"
+        - "GIT_USER_NAME=${GIT_USER_NAME:?GIT_USER_NAME is required}"
+        - "GIT_USER_EMAIL=${GIT_USER_EMAIL:?GIT_USER_EMAIL is required}"
+        - "BACKEND_PROJECT_DIR=${BACKEND_PROJECT_DIR:?BACKEND_PROJECT_DIR is required}"
+    container_name: ai_opencode_services_agent
+    environment:
+      - "GITHUB_PAT=${GITHUB_PAT:?GITHUB_PAT is required — set in .env or shell}"
+      - "AI_REPO_URL=${AI_REPO_URL:?AI_REPO_URL is required}"
+      - "FRONTEND_REPO_URL=${FRONTEND_REPO_URL:?FRONTEND_REPO_URL is required}"
+      - "BACKEND_REPO_URL=${BACKEND_REPO_URL:?BACKEND_REPO_URL is required}"
+      - "TESTS_REPO_URL=${TESTS_REPO_URL:?TESTS_REPO_URL is required}"
+      - "DB_REPO_URL=${DB_REPO_URL:?DB_REPO_URL is required}"
+      - "DB_DUMP_PATH=${DB_DUMP_PATH:?DB_DUMP_PATH is required}"
+      - DATABASE_URL=postgres://postgres@127.0.0.1:5432/sandbox_db
+      - "GIT_USER_NAME=${GIT_USER_NAME:?GIT_USER_NAME is required}"
+      - "GIT_USER_EMAIL=${GIT_USER_EMAIL:?GIT_USER_EMAIL is required}"
+      - "BACKEND_PROJECT_DIR=${BACKEND_PROJECT_DIR:?BACKEND_PROJECT_DIR is required}"
+    volumes:
+      - repo-volume:/workspace
+    networks:
+      - sandbox_net
+    tty: true
+
+  # Common runner base — build dependency only; never runs as a runner.
+  # Per-repo runner images (runner-e2e / runner-db / ...) build FROM it.
+  # Base build args are the e2e value set — the canonical probe for the
+  # fail-fast gate (RUNNER_E2E_* is always required by the active compose).
+  runner-base:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: images/runner/Dockerfile
+      args:
+        - "RUNNER_REPO_URL=${RUNNER_E2E_REPO_URL:?...}"
+        - "RUNNER_TOKEN=${RUNNER_E2E_TOKEN:?...}"
+        - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?...}"
+        - RUNNER_NAME=ai-opencode-runner-e2e
+    image: ai-opencode-sandbox/runner-base
+    command: ["/bin/true"]
+    networks:
+      - sandbox_net
+
+  # Shared node tier (runner-base + node 18) — build dependency only; consumed
+  # by runner-e2e and runner-frontend. runner-backend / runner-db skip it.
+  runner-node:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: images/runner-node/Dockerfile
+    image: ai-opencode-sandbox/runner-node
+    command: ["/bin/true"]
+    depends_on:
+      runner-base:
+        condition: service_completed_successfully
+    networks:
+      - sandbox_net
+
+  # One self-hosted runner per repo (GitHub only supports repo-scoped
+  # registration; a User account cannot host org runners). Each build
+  # enforces its own required args; tokens are short-lived (~60 min) — rotate
+  # before use. Playwright is the only e2e future (selenium discontinued).
+  # runner-db is STANDALONE (Debian trixie + postgresql-17, NOT the jammy
+  # runner-base — jammy's postgresql-14 cannot restore 17-format dumps).
+  # Frontend runner (the real frontend repo) — blocked until the
+  # runner-owner token gets admin on that repo. Uncomment and
+  # set RUNNER_FRONTEND_REPO_URL / RUNNER_FRONTEND_TOKEN in .env to enable.
+  # runner-frontend:
+  #   platform: linux/amd64
+  #   build:
+  #     context: .
+  #     dockerfile: images/runner-frontend/Dockerfile
+  #     args:
+  #       - "RUNNER_REPO_URL=${RUNNER_FRONTEND_REPO_URL:?RUNNER_FRONTEND_REPO_URL is required}"
+  #       - "RUNNER_TOKEN=${RUNNER_FRONTEND_TOKEN:?RUNNER_FRONTEND_TOKEN is required}"
+  #       - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?GIT_PUSH_TOKEN is required}"
+  #       - RUNNER_NAME=ai-opencode-runner-frontend
+  #   container_name: ai_opencode_runner_frontend
+  #   depends_on:
+  #     runner-node:
+  #       condition: service_completed_successfully
+  #   environment:
+  #     - "RUNNER_REPO_URL=${RUNNER_FRONTEND_REPO_URL:?RUNNER_FRONTEND_REPO_URL is required}"
+  #     - "RUNNER_TOKEN=${RUNNER_FRONTEND_TOKEN:?RUNNER_FRONTEND_TOKEN is required}"
+  #     - RUNNER_NAME=ai-opencode-runner-frontend
+  #     - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?GIT_PUSH_TOKEN is required}"
+  #   volumes:
+  #     - repo-volume:/runner/repo
+  #   networks:
+  #     - sandbox_net
+  #   tty: true
+
+  runner-e2e:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: images/runner-e2e/Dockerfile
+      args:
+        - "RUNNER_REPO_URL=${RUNNER_E2E_REPO_URL:?RUNNER_E2E_REPO_URL is required}"
+        - "RUNNER_TOKEN=${RUNNER_E2E_TOKEN:?RUNNER_E2E_TOKEN is required}"
+        - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?GIT_PUSH_TOKEN is required}"
+        - RUNNER_NAME=ai-opencode-runner-e2e
+    container_name: ai_opencode_runner_e2e
+    depends_on:
+      runner-node:
+        condition: service_completed_successfully
+    environment:
+      - "RUNNER_REPO_URL=${RUNNER_E2E_REPO_URL:?RUNNER_E2E_REPO_URL is required}"
+      - "RUNNER_TOKEN=${RUNNER_E2E_TOKEN:?RUNNER_E2E_TOKEN is required}"
+      - RUNNER_NAME=ai-opencode-runner-e2e
+      - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?GIT_PUSH_TOKEN is required}"
+    volumes:
+      - repo-volume:/runner/repo
+    networks:
+      - sandbox_net
+    tty: true
+
+  runner-db:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: images/runner-db/Dockerfile
+      args:
+        - "RUNNER_REPO_URL=${RUNNER_DB_REPO_URL:?RUNNER_DB_REPO_URL is required}"
+        - "RUNNER_TOKEN=${RUNNER_DB_TOKEN:?RUNNER_DB_TOKEN is required}"
+        - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?GIT_PUSH_TOKEN is required}"
+        - RUNNER_NAME=ai-opencode-runner-db
+    container_name: ai_opencode_runner_db
+    environment:
+      - "RUNNER_REPO_URL=${RUNNER_DB_REPO_URL:?RUNNER_DB_REPO_URL is required}"
+      - "RUNNER_TOKEN=${RUNNER_DB_TOKEN:?RUNNER_DB_TOKEN is required}"
+      - RUNNER_NAME=ai-opencode-runner-db
+      - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?GIT_PUSH_TOKEN is required}"
+    volumes:
+      - repo-volume:/runner/repo
+    networks:
+      - sandbox_net
+    tty: true
+
+  # Backend runner (the real backend repo) — blocked until the
+  # runner-owner token gets admin on that repo. Uncomment and
+  # set RUNNER_BACKEND_REPO_URL / RUNNER_BACKEND_TOKEN in .env to enable.
+  # STANDALONE (python:3.13.14-slim, NOT the jammy runner-base — jammy's
+  # python3 is 3.10); no depends_on.
+  # runner-backend:
+  #   platform: linux/amd64
+  #   build:
+  #     context: .
+  #     dockerfile: images/runner-backend/Dockerfile
+  #     args:
+  #       - "RUNNER_REPO_URL=${RUNNER_BACKEND_REPO_URL:?RUNNER_BACKEND_REPO_URL is required}"
+  #       - "RUNNER_TOKEN=${RUNNER_BACKEND_TOKEN:?RUNNER_BACKEND_TOKEN is required}"
+  #       - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?GIT_PUSH_TOKEN is required}"
+  #       - RUNNER_NAME=ai-opencode-runner-backend
+  #   container_name: ai_opencode_runner_backend
+  #   environment:
+  #     - "RUNNER_REPO_URL=${RUNNER_BACKEND_REPO_URL:?RUNNER_BACKEND_REPO_URL is required}"
+  #     - "RUNNER_TOKEN=${RUNNER_BACKEND_TOKEN:?RUNNER_BACKEND_TOKEN is required}"
+  #     - RUNNER_NAME=ai-opencode-runner-backend
+  #     - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?GIT_PUSH_TOKEN is required}"
+  #   volumes:
+  #     - repo-volume:/runner/repo
+  #   networks:
+  #     - sandbox_net
+  #   tty: true
+
+volumes:
+  repo-volume:
+
+networks:
+  sandbox_net:
