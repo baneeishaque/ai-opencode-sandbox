@@ -51,7 +51,7 @@ services:
         - "RUNNER_TOKEN=${RUNNER_E2E_TOKEN:?...}"
         - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?...}"
         - RUNNER_NAME=ai-opencode-runner-e2e
-    image: ai-opencode-sandbox/runner-base
+    image: ai-opencode-sandbox-runner-base
     command: ["/bin/true"]
     networks:
       - sandbox_net
@@ -63,7 +63,7 @@ services:
     build:
       context: .
       dockerfile: images/runner-node/Dockerfile
-    image: ai-opencode-sandbox/runner-node
+    image: ai-opencode-sandbox-runner-node
     command: ["/bin/true"]
     depends_on:
       runner-base:

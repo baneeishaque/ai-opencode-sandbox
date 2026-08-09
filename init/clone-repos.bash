@@ -43,10 +43,17 @@ clone_or_update() {
   fi
 }
 
-clone_or_update "$AI_REPO_URL" "ai-repo"
-clone_or_update "$FRONTEND_REPO_URL" "frontend"
-clone_or_update "$BACKEND_REPO_URL" "backend"
-clone_or_update "$TESTS_REPO_URL" "tests"
-clone_or_update "$DB_REPO_URL" "db"
+# Output capture: the clone block below tees its output to
+# /workspace/logs/clone-repos.log (in addition to stdout) so failures can be
+# interpreted later — /workspace is the repo volume and survives container
+# recreation. pipefail keeps tee from masking a failed clone.
+mkdir -p /workspace/logs
+{
+  clone_or_update "$AI_REPO_URL" "ai-repo"
+  clone_or_update "$FRONTEND_REPO_URL" "frontend"
+  clone_or_update "$BACKEND_REPO_URL" "backend"
+  clone_or_update "$TESTS_REPO_URL" "tests"
+  clone_or_update "$DB_REPO_URL" "db"
 
-echo "Repos ready at $REPO_ROOT"
+  echo "Repos ready at $REPO_ROOT"
+} 2>&1 | tee /workspace/logs/clone-repos.log

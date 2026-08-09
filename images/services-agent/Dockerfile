@@ -5,6 +5,11 @@
 # then update the @sha256:... below. The apt layer is snapshot-pinned below.
 FROM python:3.13.14-slim@sha256:9662417aace5ae7b8e2609cce472b72a8958e134ba372808abe9cc1a0c0125e6
 
+# All RUN steps use bash: set -o pipefail and brace-groups are bash-isms, and
+# Debian/Ubuntu /bin/sh is dash (which has neither). ENTRYPOINT already uses
+# /bin/bash -lc.
+SHELL ["/bin/bash", "-c"]
+
 # Required build args — fail-fast gate: docker build (or compose build) must
 # receive these, mirroring the runtime env requirements. Values are validated
 # but NOT baked into the image (no ENV/COPY from them); the container gets
@@ -41,14 +46,22 @@ ENV DEBIAN_FRONTEND=noninteractive
 # (2026-08-01), freezing git, postgresql-17, and every transitive lib to exact
 # versions. Snapshot Releases are older than apt's 7-day validity window, so
 # Check-Valid-Until: no is required.
-RUN rm -f /etc/apt/sources.list.d/debian.sources \
+#
+# Output capture: every RUN step below tees its output to /var/log/build/*.log
+# inside the image (in addition to stdout), so a later failure can be
+# interpreted via docker exec after the build. set -o pipefail keeps a failing
+# step failing — tee must never mask an error.
+RUN set -o pipefail \
+  && mkdir -p /var/log/build \
+  && rm -f /etc/apt/sources.list.d/debian.sources \
   && printf 'Types: deb\nURIs: https://snapshot.debian.org/archive/debian/20260801T000000Z/\nSuites: trixie trixie-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\nCheck-Valid-Until: no\n' > /etc/apt/sources.list.d/snapshot.sources \
-  && apt-get update \
+  && apt-get update 2>&1 | tee /var/log/build/apt-update.log \
   && apt-get install -y --no-install-recommends curl ca-certificates git git-lfs xz-utils \
      postgresql-17 \
      libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libx11-6 libxcomposite1 libxrandr2 libxdamage1 libxss1 libasound2 libgbm1 \
      libdbus-1-3 libdrm2 libxkbcommon0 libxcb1 libxext6 libxfixes3 libxshmfence1 libxtst6 \
-     libpango-1.0-0 libcairo2 libatspi2.0-0 libnspr4 libglib2.0-0 fonts-liberation
+     libpango-1.0-0 libcairo2 libatspi2.0-0 libnspr4 libglib2.0-0 fonts-liberation \
+     2>&1 | tee /var/log/build/apt-install.log
 
 # Node.js 18.20.8 (final 18.x; required by the frontend stack) + OpenCode CLI
 # 1.18.15 (the agent runtime, pinned to the host's version).
@@ -61,26 +74,29 @@ RUN rm -f /etc/apt/sources.list.d/debian.sources \
 # to the identical binary (sha256 c1971d3d...).
 # Hash sources: https://nodejs.org/dist/latest-v18.x/SHASUMS256.txt
 # https://github.com/anomalyco/opencode/releases/download/v1.18.15/opencode-linux-x64.tar.gz
-RUN curl -fsSL -o /tmp/node.tar.xz https://nodejs.org/dist/v18.20.8/node-v18.20.8-linux-x64.tar.xz \
-  && echo "5467ee62d6af1411d46b6a10e3fb5cacc92734dbcef465fea14e7b90993001c9  /tmp/node.tar.xz" | sha256sum -c - \
-  && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
-  && rm /tmp/node.tar.xz \
-  && curl -fsSL -o /tmp/opencode.tar.gz https://github.com/anomalyco/opencode/releases/download/v1.18.15/opencode-linux-x64.tar.gz \
-  && echo "d842e0e8c622c672a481b7dc6f0329009b64db96b2ba6041e56f4f93f0293b1c  /tmp/opencode.tar.gz" | sha256sum -c - \
-  && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin opencode \
-  && chmod 755 /usr/local/bin/opencode \
-  && rm /tmp/opencode.tar.gz
+RUN set -o pipefail \
+  && { curl -fsSL -o /tmp/node.tar.xz https://nodejs.org/dist/v18.20.8/node-v18.20.8-linux-x64.tar.xz \
+    && echo "5467ee62d6af1411d46b6a10e3fb5cacc92734dbcef465fea14e7b90993001c9  /tmp/node.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+    && rm /tmp/node.tar.xz \
+    && curl -fsSL -o /tmp/opencode.tar.gz https://github.com/anomalyco/opencode/releases/download/v1.18.15/opencode-linux-x64.tar.gz \
+    && echo "d842e0e8c622c672a481b7dc6f0329009b64db96b2ba6041e56f4f93f0293b1c  /tmp/opencode.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin opencode \
+    && chmod 755 /usr/local/bin/opencode \
+    && rm /tmp/opencode.tar.gz; } 2>&1 | tee /var/log/build/node-opencode-download.log
 
 # Remove build-time-only curl and apt metadata
-RUN apt-get purge -y --auto-remove curl \
+RUN set -o pipefail \
+  && apt-get purge -y --auto-remove curl 2>&1 | tee /var/log/build/apt-purge.log \
   && rm -rf /var/lib/apt/lists/*
 
 # Playwright CLI and browsers — exact version pinned; playwright verifies
 # browser archive integrity during install. 1.61.x is the newest line that
 # supports node 18 (1.62+ requires node >=20); --only-shell installs just the
 # headless Chromium shell (screenshots only) — saves ~100 MB over full Chromium.
-RUN npm i -g playwright@1.61.1 \
-  && npx playwright install chromium --only-shell \
+RUN set -o pipefail \
+  && npm i -g playwright@1.61.1 2>&1 | tee /var/log/build/playwright-install.log \
+  && npx playwright install chromium --only-shell 2>&1 | tee /var/log/build/playwright-browsers.log \
   && npm cache clean --force \
   && rm -rf /root/.npm
 

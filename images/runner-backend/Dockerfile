@@ -9,6 +9,9 @@
 # then update the @sha256:... below.
 FROM python:3.13.14-slim@sha256:9662417aace5ae7b8e2609cce472b72a8958e134ba372808abe9cc1a0c0125e6
 
+# RUN steps use bash (see services-agent): /bin/sh is dash, no pipefail.
+SHELL ["/bin/bash", "-c"]
+
 # Required build args — fail-fast gate mirroring the runtime env requirements.
 # Values are validated but NOT baked into the image; the container gets them
 # via compose environment at run time.
@@ -36,10 +39,18 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Reproducibility: apt layer pinned to the same dated Debian snapshot
 # (2026-08-01) as services-agent / runner-db. Snapshot Releases are older
 # than apt's 7-day validity window, so Check-Valid-Until: no is required.
-RUN rm -f /etc/apt/sources.list.d/debian.sources \
+#
+# Output capture: RUN steps tee their output to /var/log/build/*.log inside
+# the image (in addition to stdout) so failures can be interpreted later via
+# docker exec. set -o pipefail keeps a failing step failing — tee must never
+# mask an error.
+RUN set -o pipefail \
+  && mkdir -p /var/log/build \
+  && rm -f /etc/apt/sources.list.d/debian.sources \
   && printf 'Types: deb\nURIs: https://snapshot.debian.org/archive/debian/20260801T000000Z/\nSuites: trixie trixie-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\nCheck-Valid-Until: no\n' > /etc/apt/sources.list.d/snapshot.sources \
-  && apt-get update \
+  && apt-get update 2>&1 | tee /var/log/build/apt-update.log \
   && apt-get install -y --no-install-recommends curl ca-certificates git tar libicu76 libssl3t64 libkrb5-3 \
+     2>&1 | tee /var/log/build/apt-install.log \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /runner

@@ -18,6 +18,13 @@ cd "$REPO_ROOT" || exit 1
 git config --global user.name "$GIT_USER_NAME"
 git config --global user.email "$GIT_USER_EMAIL"
 
+# Output capture: the whole setup phase below tees its output to
+# /workspace/logs/start-all.log (in addition to stdout) so failures can be
+# interpreted later — /workspace is the repo volume and survives container
+# recreation. pipefail keeps tee from masking a failed step. The interactive
+# shell after the block is NOT captured (it would grow the log unbounded).
+mkdir -p /workspace/logs
+{
 # Start a lightweight Postgres using the system package (ephemeral).
 # Debian keeps the postgres binaries in /usr/lib/postgresql/<ver>/bin (not on
 # PATH), and psql defaults to the /var/run/postgresql socket dir — the server
@@ -60,6 +67,7 @@ if [ -d "$REPO_ROOT/frontend" ]; then
   nohup npm run start -- --host 0.0.0.0 > /workspace/frontend.log 2>&1 &
   cd "$REPO_ROOT"
 fi
+} 2>&1 | tee /workspace/logs/start-all.log
 
 # Leave shell in ai-repo workspace so opencode can be started manually or by replacing the exec line
 if [ -d "$REPO_ROOT/ai-repo" ]; then

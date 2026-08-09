@@ -1883,6 +1883,11 @@ dockerfile
 # then update the @sha256:... below. The apt layer is snapshot-pinned below.
 FROM python:3.13.14-slim@sha256:9662417aace5ae7b8e2609cce472b72a8958e134ba372808abe9cc1a0c0125e6
 
+# All RUN steps use bash: set -o pipefail and brace-groups are bash-isms, and
+# Debian/Ubuntu /bin/sh is dash (which has neither). ENTRYPOINT already uses
+# /bin/bash -lc.
+SHELL ["/bin/bash", "-c"]
+
 # Required build args — fail-fast gate: docker build (or compose build) must
 # receive these, mirroring the runtime env requirements. Values are validated
 # but NOT baked into the image (no ENV/COPY from them); the container gets
@@ -1919,14 +1924,22 @@ ENV DEBIAN_FRONTEND=noninteractive
 # (2026-08-01), freezing git, postgresql-17, and every transitive lib to exact
 # versions. Snapshot Releases are older than apt's 7-day validity window, so
 # Check-Valid-Until: no is required.
-RUN rm -f /etc/apt/sources.list.d/debian.sources \
+#
+# Output capture: every RUN step below tees its output to /var/log/build/*.log
+# inside the image (in addition to stdout), so a later failure can be
+# interpreted via docker exec after the build. set -o pipefail keeps a failing
+# step failing — tee must never mask an error.
+RUN set -o pipefail \
+  && mkdir -p /var/log/build \
+  && rm -f /etc/apt/sources.list.d/debian.sources \
   && printf 'Types: deb\nURIs: https://snapshot.debian.org/archive/debian/20260801T000000Z/\nSuites: trixie trixie-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\nCheck-Valid-Until: no\n' > /etc/apt/sources.list.d/snapshot.sources \
-  && apt-get update \
+  && apt-get update 2>&1 | tee /var/log/build/apt-update.log \
   && apt-get install -y --no-install-recommends curl ca-certificates git git-lfs xz-utils \
      postgresql-17 \
      libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libx11-6 libxcomposite1 libxrandr2 libxdamage1 libxss1 libasound2 libgbm1 \
      libdbus-1-3 libdrm2 libxkbcommon0 libxcb1 libxext6 libxfixes3 libxshmfence1 libxtst6 \
-     libpango-1.0-0 libcairo2 libatspi2.0-0 libnspr4 libglib2.0-0 fonts-liberation
+     libpango-1.0-0 libcairo2 libatspi2.0-0 libnspr4 libglib2.0-0 fonts-liberation \
+     2>&1 | tee /var/log/build/apt-install.log
 
 # Node.js 18.20.8 (final 18.x; required by the frontend stack) + OpenCode CLI
 # 1.18.15 (the agent runtime, pinned to the host's version).
@@ -1939,26 +1952,29 @@ RUN rm -f /etc/apt/sources.list.d/debian.sources \
 # to the identical binary (sha256 c1971d3d...).
 # Hash sources: https://nodejs.org/dist/latest-v18.x/SHASUMS256.txt
 # https://github.com/anomalyco/opencode/releases/download/v1.18.15/opencode-linux-x64.tar.gz
-RUN curl -fsSL -o /tmp/node.tar.xz https://nodejs.org/dist/v18.20.8/node-v18.20.8-linux-x64.tar.xz \
-  && echo "5467ee62d6af1411d46b6a10e3fb5cacc92734dbcef465fea14e7b90993001c9  /tmp/node.tar.xz" | sha256sum -c - \
-  && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
-  && rm /tmp/node.tar.xz \
-  && curl -fsSL -o /tmp/opencode.tar.gz https://github.com/anomalyco/opencode/releases/download/v1.18.15/opencode-linux-x64.tar.gz \
-  && echo "d842e0e8c622c672a481b7dc6f0329009b64db96b2ba6041e56f4f93f0293b1c  /tmp/opencode.tar.gz" | sha256sum -c - \
-  && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin opencode \
-  && chmod 755 /usr/local/bin/opencode \
-  && rm /tmp/opencode.tar.gz
+RUN set -o pipefail \
+  && { curl -fsSL -o /tmp/node.tar.xz https://nodejs.org/dist/v18.20.8/node-v18.20.8-linux-x64.tar.xz \
+    && echo "5467ee62d6af1411d46b6a10e3fb5cacc92734dbcef465fea14e7b90993001c9  /tmp/node.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+    && rm /tmp/node.tar.xz \
+    && curl -fsSL -o /tmp/opencode.tar.gz https://github.com/anomalyco/opencode/releases/download/v1.18.15/opencode-linux-x64.tar.gz \
+    && echo "d842e0e8c622c672a481b7dc6f0329009b64db96b2ba6041e56f4f93f0293b1c  /tmp/opencode.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin opencode \
+    && chmod 755 /usr/local/bin/opencode \
+    && rm /tmp/opencode.tar.gz; } 2>&1 | tee /var/log/build/node-opencode-download.log
 
 # Remove build-time-only curl and apt metadata
-RUN apt-get purge -y --auto-remove curl \
+RUN set -o pipefail \
+  && apt-get purge -y --auto-remove curl 2>&1 | tee /var/log/build/apt-purge.log \
   && rm -rf /var/lib/apt/lists/*
 
 # Playwright CLI and browsers — exact version pinned; playwright verifies
 # browser archive integrity during install. 1.61.x is the newest line that
 # supports node 18 (1.62+ requires node >=20); --only-shell installs just the
 # headless Chromium shell (screenshots only) — saves ~100 MB over full Chromium.
-RUN npm i -g playwright@1.61.1 \
-  && npx playwright install chromium --only-shell \
+RUN set -o pipefail \
+  && npm i -g playwright@1.61.1 2>&1 | tee /var/log/build/playwright-install.log \
+  && npx playwright install chromium --only-shell 2>&1 | tee /var/log/build/playwright-browsers.log \
   && npm cache clean --force \
   && rm -rf /root/.npm
 
@@ -1985,9 +2001,15 @@ dockerfile
 # a build dependency.
 # Base byte-frozen: ubuntu 22.04 digest pin (freezes the exact base layer).
 # Bump discipline: docker buildx imagetools inspect ubuntu:22.04  # new digest
-# then update the @sha256:... below. The runner tarball itself has no
-# published checksum (GitHub publishes none) — version pin + TLS only.
+# then update the @sha256:... below. The runner tarball (2.336.0, downloaded
+# at runtime by entrypoint.bash) is checksum-verified against the SHA-256
+# GitHub now publishes in each release's notes.
 FROM ubuntu:22.04@sha256:3b06811b2afd352be909dd088a004166d665dc76d38b13eada33522a9d915c6f
+
+# All RUN steps use bash: set -o pipefail and brace-groups are bash-isms, and
+# Ubuntu /bin/sh is dash (which has neither). ENTRYPOINT already uses
+# /bin/bash -lc.
+SHELL ["/bin/bash", "-c"]
 
 # Required build args — fail-fast gate, same as every runner image. The base
 # is repo-agnostic, so compose wires the e2e value set as the canonical probe
@@ -2008,9 +2030,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # gh runner runtime deps: the runner binary links the runtime .so only —
 # runtime packages (libicu70/libssl3), not the -dev header packages (3-4x
-# larger). Verified against the pinned tarball's ELF deps: libicu70 is what
-# pulls libstdc++6 + libgcc-s1 (hard load-time deps of coreclr + bundled
-# node20), libssl3 pulls zlib1g, tar pulls liblzma5. curl kept (actions +
+# larger). Deps were verified against the 2.308.0 tarball's ELF needs when
+# the base was designed; the 2.336.0 bump is expected to keep them (same
+# load-time shape) — if it ever changes, the missing-lib failure shows in
+# /var/log/runner-entrypoint.log. libicu70 is what pulls libstdc++6 +
+# libgcc-s1 (hard load-time deps of coreclr + bundled node20), libssl3 pulls
+# zlib1g, tar pulls liblzma5. curl kept (actions +
 # Node tarball fetch). No gzip — nothing uses the binary; tar -xzf and the
 # .NET/Playwright extractors decompress via libz/bundled code. No python
 # (runner-backend only) and no node (runner-node tier only) — per-layer
@@ -2020,12 +2045,34 @@ ENV DEBIAN_FRONTEND=noninteractive
 # freezing every package to exact versions. Snapshot Releases are older than
 # apt's 7-day validity window, so Check-Valid-Until: no is required. All
 # downstream layers (runner-node, per-repo toolchains) inherit these pinned
-# sources. main only — every package in the stack (incl. the Chromium libs
-# on the e2e tier) resolves from main.
-RUN rm -f /etc/apt/sources.list \
-  && printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/20260809T000000Z/ jammy main\n' > /etc/apt/sources.list \
-  && apt-get update \
-  && apt-get install -y --no-install-recommends curl ca-certificates git tar libicu70 libssl3 libkrb5-3 \
+# sources. TWO pockets: jammy main + jammy-updates — the pinned base digest
+# is rebuilt with jammy-updates versions baked in (e.g. perl-base
+# 5.34.0-3ubuntu1.7), so a main-only pin creates version skew (snapshot perl
+# 5.34.0-3ubuntu1 requires perl-base exactly = 5.34.0-3ubuntu1) and apt
+# fails with "held broken packages".
+#
+# Output capture: RUN steps tee their output to /var/log/build/*.log inside
+# the image (in addition to stdout) so failures can be interpreted later via
+# docker exec. set -o pipefail keeps a failing step failing — tee must never
+# mask an error.
+#
+# CA bootstrap: the ubuntu:22.04 base image ships NO CA store, so an https
+# apt against the snapshot fails TLS before any package is installed
+# ("No system certificates available. Try installing ca-certificates").
+# Default sources are plain http archive.ubuntu.com, so ca-certificates is
+# bootstrapped from them first, then sources are swapped to the pinned
+# snapshot. Debian-slim bases (services-agent, runner-db) ship certs and do
+# not need this.
+RUN set -o pipefail \
+  && mkdir -p /var/log/build \
+  && apt-get update 2>&1 | tee /var/log/build/apt-bootstrap-update.log \
+  && apt-get install -y --no-install-recommends ca-certificates \
+     2>&1 | tee /var/log/build/apt-bootstrap-ca.log \
+  && rm -f /etc/apt/sources.list \
+  && printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/20260809T000000Z/ jammy main\ndeb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/20260809T000000Z/ jammy-updates main\n' > /etc/apt/sources.list \
+  && apt-get update 2>&1 | tee /var/log/build/apt-update.log \
+  && apt-get install -y --no-install-recommends curl git tar libicu70 libssl3 libkrb5-3 \
+     2>&1 | tee /var/log/build/apt-install.log \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /runner
@@ -2040,7 +2087,10 @@ dockerfile
 # dependency only, never runs as a runner. Consumed by runner-e2e
 # (playwright) and runner-frontend (npm); runner-backend / runner-db do NOT
 # include it. Kept as its own tier so the pinned tarball exists once.
-FROM ai-opencode-sandbox/runner-base:latest
+FROM ai-opencode-sandbox-runner-base:latest
+
+# RUN steps use bash (see runner-base): /bin/sh is dash, no pipefail.
+SHELL ["/bin/bash", "-c"]
 
 # Node.js 18.20.8 — official binary tarball with PINNED SHA-256, instead of the
 # Nodesource setup script (mutable remote code executed as root) and apt repo
@@ -2048,14 +2098,21 @@ FROM ai-opencode-sandbox/runner-base:latest
 # Hash source: https://nodejs.org/dist/latest-v18.x/SHASUMS256.txt
 # xz-utils is build-time-only (tar -xJf spawns the xz binary) and is purged
 # after extraction; it stays out of the shared base per the per-layer rule.
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends xz-utils \
-  && curl -fsSL -o /tmp/node.tar.xz https://nodejs.org/dist/v18.20.8/node-v18.20.8-linux-x64.tar.xz \
-  && echo "5467ee62d6af1411d46b6a10e3fb5cacc92734dbcef465fea14e7b90993001c9  /tmp/node.tar.xz" | sha256sum -c - \
-  && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
-  && rm /tmp/node.tar.xz \
-  && apt-get purge -y --auto-remove xz-utils \
-  && rm -rf /var/lib/apt/lists/*
+#
+# Output capture: the step tees its output to /var/log/build/node-tier-install.log
+# inside the image (in addition to stdout) so failures can be interpreted later
+# via docker exec. set -o pipefail keeps a failing step failing — tee must
+# never mask an error.
+RUN set -o pipefail \
+  && mkdir -p /var/log/build \
+  && { apt-get update \
+    && apt-get install -y --no-install-recommends xz-utils \
+    && curl -fsSL -o /tmp/node.tar.xz https://nodejs.org/dist/v18.20.8/node-v18.20.8-linux-x64.tar.xz \
+    && echo "5467ee62d6af1411d46b6a10e3fb5cacc92734dbcef465fea14e7b90993001c9  /tmp/node.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+    && rm /tmp/node.tar.xz \
+    && apt-get purge -y --auto-remove xz-utils \
+    && rm -rf /var/lib/apt/lists/*; } 2>&1 | tee /var/log/build/node-tier-install.log
 
 Dedicated per-repo runner images build FROM the base (or the node tier) and
 add one toolchain each; all four share the same required-args fail-fast gate
@@ -2145,13 +2202,20 @@ clone_or_update() {
   fi
 }
 
-clone_or_update "$AI_REPO_URL" "ai-repo"
-clone_or_update "$FRONTEND_REPO_URL" "frontend"
-clone_or_update "$BACKEND_REPO_URL" "backend"
-clone_or_update "$TESTS_REPO_URL" "tests"
-clone_or_update "$DB_REPO_URL" "db"
+# Output capture: the clone block below tees its output to
+# /workspace/logs/clone-repos.log (in addition to stdout) so failures can be
+# interpreted later — /workspace is the repo volume and survives container
+# recreation. pipefail keeps tee from masking a failed clone.
+mkdir -p /workspace/logs
+{
+  clone_or_update "$AI_REPO_URL" "ai-repo"
+  clone_or_update "$FRONTEND_REPO_URL" "frontend"
+  clone_or_update "$BACKEND_REPO_URL" "backend"
+  clone_or_update "$TESTS_REPO_URL" "tests"
+  clone_or_update "$DB_REPO_URL" "db"
 
-echo "Repos ready at $REPO_ROOT"
+  echo "Repos ready at $REPO_ROOT"
+} 2>&1 | tee /workspace/logs/clone-repos.log
 services/start-all.bash (trimmed)
 bash
 #!/usr/bin/env bash

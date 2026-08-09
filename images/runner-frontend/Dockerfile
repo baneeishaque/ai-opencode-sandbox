@@ -1,5 +1,8 @@
 # Frontend runner — node-based toolchain on the node tier (runner-base + node).
-FROM ai-opencode-sandbox/runner-node:latest
+FROM ai-opencode-sandbox-runner-node:latest
+
+# RUN steps use bash (see runner-base): /bin/sh is dash, no pipefail.
+SHELL ["/bin/bash", "-c"]
 
 # Required build args — fail-fast gate mirroring the runtime env requirements.
 # Values are validated but NOT baked into the image; the container gets them

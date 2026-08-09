@@ -94,6 +94,14 @@ restore_one() {
   esac
 }
 
+# Output capture: the restore block below tees its output to
+# /workspace/logs/restore-db.log (in addition to stdout) so failures can be
+# interpreted later — /workspace is the repo volume and survives container
+# recreation. pipefail keeps tee from masking a failed restore. Note: `exit`
+# inside the block exits the block's subshell; the pipeline propagates the
+# code, so the script's exit status is unchanged.
+mkdir -p /workspace/logs
+{
 if [ ! -d "$DB_DUMP_PATH" ]; then
   echo "No DB dump directory at $DB_DUMP_PATH; skipping restore"
   exit 0
@@ -112,3 +120,4 @@ case "$base" in
   *.tar)  restore_one "$candidate" tar ;;
   *)      restore_one "$candidate" cluster ;;
 esac
+} 2>&1 | tee /workspace/logs/restore-db.log

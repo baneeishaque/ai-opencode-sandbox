@@ -13,13 +13,24 @@ if [ -z "$RUNNER_URL" ] || [ -z "$RUNNER_TOKEN" ] || [ -z "$RUNNER_NAME" ]; then
   exec /bin/bash
 fi
 
+# Output capture: everything below tees to /var/log/runner-entrypoint.log
+# (in addition to stdout) so registration / job failures can be interpreted
+# later via docker exec or docker cp. pipefail keeps tee from masking a
+# failure. The cleanup trap lives inside the block — it fires when run.sh
+# exits, exactly as before.
+mkdir -p /var/log
+{
 mkdir -p "$RUNNER_DIR"
 cd "$RUNNER_DIR"
 
 if [ ! -f "$RUNNER_DIR/run.sh" ]; then
   echo "Downloading GitHub Actions runner"
-  RUNNER_TAR="actions-runner-linux-x64-2.308.0.tar.gz"
-  curl -fsSL -o "$RUNNER_TAR" "https://github.com/actions/runner/releases/download/v2.308.0/$RUNNER_TAR"
+  # v2.336.0 (2026-07-20) — latest stable. GitHub publishes the per-asset
+  # SHA-256 in the release notes, so the tarball is checksum-verified here
+  # (2.308.0-era releases published none — TLS only then).
+  RUNNER_TAR="actions-runner-linux-x64-2.336.0.tar.gz"
+  curl -fsSL -o "$RUNNER_TAR" "https://github.com/actions/runner/releases/download/v2.336.0/$RUNNER_TAR"
+  echo "04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d  $RUNNER_TAR" | sha256sum -c -
   tar xzf "$RUNNER_TAR"
 fi
 
@@ -36,3 +47,4 @@ if [ -n "$GIT_PUSH_TOKEN" ]; then
 fi
 
 ./run.sh
+} 2>&1 | tee /var/log/runner-entrypoint.log

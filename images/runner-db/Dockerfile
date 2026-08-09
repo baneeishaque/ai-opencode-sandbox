@@ -9,6 +9,9 @@
 # then update the @sha256:... below.
 FROM debian:trixie-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
 
+# RUN steps use bash (see services-agent): /bin/sh is dash, no pipefail.
+SHELL ["/bin/bash", "-c"]
+
 # Required build args — fail-fast gate mirroring the runtime env requirements.
 # Values are validated but NOT baked into the image; the container gets them
 # via compose environment at run time.
@@ -36,10 +39,29 @@ ENV DEBIAN_FRONTEND=noninteractive
 # (2026-08-01) as services-agent, freezing postgresql-17 and every transitive
 # lib to exact versions. Snapshot Releases are older than apt's 7-day
 # validity window, so Check-Valid-Until: no is required.
-RUN rm -f /etc/apt/sources.list.d/debian.sources \
+#
+# Output capture: RUN steps tee their output to /var/log/build/*.log inside
+# the image (in addition to stdout) so failures can be interpreted later via
+# docker exec. set -o pipefail keeps a failing step failing — tee must never
+# mask an error.
+#
+# CA bootstrap: debian:trixie-slim ships NO CA store, so https apt against
+# snapshot.debian.org fails TLS ("certificate verify failed") before any
+# package installs. The default debian.sources uses plain http deb.debian.org
+# (and the archive keyring is preinstalled), so ca-certificates is
+# bootstrapped from it first, then sources are swapped to the pinned
+# snapshot. python-slim bases (services-agent, runner-backend) ship certs
+# and do not need this.
+RUN set -o pipefail \
+  && mkdir -p /var/log/build \
+  && apt-get update 2>&1 | tee /var/log/build/apt-bootstrap-update.log \
+  && apt-get install -y --no-install-recommends ca-certificates \
+     2>&1 | tee /var/log/build/apt-bootstrap-ca.log \
+  && rm -f /etc/apt/sources.list.d/debian.sources \
   && printf 'Types: deb\nURIs: https://snapshot.debian.org/archive/debian/20260801T000000Z/\nSuites: trixie trixie-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\nCheck-Valid-Until: no\n' > /etc/apt/sources.list.d/snapshot.sources \
-  && apt-get update \
-  && apt-get install -y --no-install-recommends curl ca-certificates git tar libicu76 libssl3t64 libkrb5-3 postgresql-17 \
+  && apt-get update 2>&1 | tee /var/log/build/apt-update.log \
+  && apt-get install -y --no-install-recommends curl git tar libicu76 libssl3t64 libkrb5-3 postgresql-17 \
+     2>&1 | tee /var/log/build/apt-install.log \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /runner
