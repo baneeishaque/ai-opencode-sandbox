@@ -13,6 +13,13 @@ if [ -x /init/clone-repos.bash ]; then
   /init/clone-repos.bash
 fi
 
+# Link opencode plugins shipped in the ai-repo clone into the global config
+# dir. OPENCODE_PLUGIN_DIR (relative to the ai-repo) is required; a missing
+# folder is a hard error.
+if [ -x /init/link-opencode-plugins.bash ]; then
+  /init/link-opencode-plugins.bash
+fi
+
 cd "$REPO_ROOT" || exit 1
 
 git config --global user.name "$GIT_USER_NAME"

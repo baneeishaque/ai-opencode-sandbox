@@ -114,8 +114,9 @@ WORKDIR /workspace
 # Copy scripts (baked outside /workspace so the repo volume can mount there)
 COPY services/start-all.bash /init/start-all.bash
 COPY services/restore-db.bash /init/restore-db.bash
+COPY services/link-opencode-plugins.bash /init/link-opencode-plugins.bash
 COPY services/scripts/ /init/scripts/
 COPY init/clone-repos.bash /init/clone-repos.bash
-RUN chmod +x /init/start-all.bash /init/restore-db.bash /init/clone-repos.bash
+RUN chmod +x /init/start-all.bash /init/restore-db.bash /init/link-opencode-plugins.bash /init/clone-repos.bash
 
 ENTRYPOINT ["/bin/bash", "-lc", "/init/start-all.bash"]

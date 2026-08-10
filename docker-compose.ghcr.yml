@@ -1,0 +1,42 @@
+# Pull-and-run variant: uses the GHCR-pushed image instead of building from
+# the Dockerfile. No build args — everything arrives via environment at run
+# time (same fail-fast gates as docker-compose.yml).
+#
+# Usage (project dir):
+#   docker compose -f docker-compose.ghcr.yml up -d
+# The image is a PRIVATE GHCR package — pull requires a prior
+#   docker login ghcr.io -u baneeishaque
+# with a PAT that has read:packages. Stop the build-from-source container
+# first (docker compose down) — container_name and volumes are shared.
+services:
+  services-agent:
+    image: ghcr.io/baneeishaque/ai-opencode-sandbox-services-agent:1.0.0
+    platform: linux/amd64
+    container_name: ai_opencode_services_agent
+    environment:
+      - "GITHUB_PAT=${GITHUB_PAT:?GITHUB_PAT is required — set in .env or shell}"
+      - "AI_REPO_URL=${AI_REPO_URL:?AI_REPO_URL is required}"
+      - "FRONTEND_REPO_URL=${FRONTEND_REPO_URL:?FRONTEND_REPO_URL is required}"
+      - "BACKEND_REPO_URL=${BACKEND_REPO_URL:?BACKEND_REPO_URL is required}"
+      - "TESTS_REPO_URL=${TESTS_REPO_URL:?TESTS_REPO_URL is required}"
+      - "DB_REPO_URL=${DB_REPO_URL:?DB_REPO_URL is required}"
+      - "DB_DUMP_PATH=${DB_DUMP_PATH:?DB_DUMP_PATH is required}"
+      - DATABASE_URL=postgres://postgres@127.0.0.1:5432/sandbox_db
+      - DJANGO_READ_DOT_ENV_FILE=1
+      - USE_DOCKER=yes
+      - DJANGO_SECRET_KEY=zg4dQ1kGxpsPNqKqNaIZ7fzMvaX5HZUffDCmn2ybj1RSrBbzWbbZVyP-1VnyaRVYm1c
+      - "GIT_USER_NAME=${GIT_USER_NAME:?GIT_USER_NAME is required}"
+      - "GIT_USER_EMAIL=${GIT_USER_EMAIL:?GIT_USER_EMAIL is required}"
+      - "BACKEND_PROJECT_DIR=${BACKEND_PROJECT_DIR:?BACKEND_PROJECT_DIR is required}"
+      - "OPENCODE_PLUGIN_DIR=${OPENCODE_PLUGIN_DIR:?OPENCODE_PLUGIN_DIR is required}"
+    volumes:
+      - repo-volume:/workspace
+    networks:
+      - sandbox_net
+    tty: true
+
+volumes:
+  repo-volume:
+
+networks:
+  sandbox_net:
