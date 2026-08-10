@@ -47,35 +47,38 @@ services:
   # Per-repo runner images (runner-e2e / runner-db / ...) build FROM it.
   # Base build args are the e2e value set — the canonical probe for the
   # fail-fast gate (RUNNER_E2E_* is always required by the active compose).
-  runner-base:
-    platform: linux/amd64
-    build:
-      context: .
-      dockerfile: images/runner/Dockerfile
-      args:
-        - "RUNNER_REPO_URL=${RUNNER_E2E_REPO_URL:?...}"
-        - "RUNNER_TOKEN=${RUNNER_E2E_TOKEN:?...}"
-        - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?...}"
-        - RUNNER_NAME=ai-opencode-runner-e2e
-    image: ai-opencode-sandbox-runner-base
-    command: ["/bin/true"]
-    networks:
-      - sandbox_net
-
+  # DISABLED with the runner phase (tokens removed from .env). Uncomment the
+  # runner-base / runner-node / runner-e2e / runner-db services below and
+  # restore RUNNER_E2E_TOKEN / RUNNER_DB_TOKEN in .env to re-enable.
+  # runner-base:
+  #   platform: linux/amd64
+  #   build:
+  #     context: .
+  #     dockerfile: images/runner/Dockerfile
+  #     args:
+  #       - "RUNNER_REPO_URL=${RUNNER_E2E_REPO_URL:?...}"
+  #       - "RUNNER_TOKEN=${RUNNER_E2E_TOKEN:?...}"
+  #       - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?...}"
+  #       - RUNNER_NAME=ai-opencode-runner-e2e
+  #   image: ai-opencode-sandbox-runner-base
+  #   command: ["/bin/true"]
+  #   networks:
+  #     - sandbox_net
+  #
   # Shared node tier (runner-base + node 18) — build dependency only; consumed
   # by runner-e2e and runner-frontend. runner-backend / runner-db skip it.
-  runner-node:
-    platform: linux/amd64
-    build:
-      context: .
-      dockerfile: images/runner-node/Dockerfile
-    image: ai-opencode-sandbox-runner-node
-    command: ["/bin/true"]
-    depends_on:
-      runner-base:
-        condition: service_completed_successfully
-    networks:
-      - sandbox_net
+  # runner-node:
+  #   platform: linux/amd64
+  #   build:
+  #     context: .
+  #     dockerfile: images/runner-node/Dockerfile
+  #   image: ai-opencode-sandbox-runner-node
+  #   command: ["/bin/true"]
+  #   depends_on:
+  #     runner-base:
+  #       condition: service_completed_successfully
+  #   networks:
+  #     - sandbox_net
 
   # One self-hosted runner per repo (GitHub only supports repo-scoped
   # registration; a User account cannot host org runners). Each build
@@ -111,52 +114,52 @@ services:
   #     - sandbox_net
   #   tty: true
 
-  runner-e2e:
-    platform: linux/amd64
-    build:
-      context: .
-      dockerfile: images/runner-e2e/Dockerfile
-      args:
-        - "RUNNER_REPO_URL=${RUNNER_E2E_REPO_URL:?RUNNER_E2E_REPO_URL is required}"
-        - "RUNNER_TOKEN=${RUNNER_E2E_TOKEN:?RUNNER_E2E_TOKEN is required}"
-        - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?GIT_PUSH_TOKEN is required}"
-        - RUNNER_NAME=ai-opencode-runner-e2e
-    container_name: ai_opencode_runner_e2e
-    depends_on:
-      runner-node:
-        condition: service_completed_successfully
-    environment:
-      - "RUNNER_REPO_URL=${RUNNER_E2E_REPO_URL:?RUNNER_E2E_REPO_URL is required}"
-      - "RUNNER_TOKEN=${RUNNER_E2E_TOKEN:?RUNNER_E2E_TOKEN is required}"
-      - RUNNER_NAME=ai-opencode-runner-e2e
-      - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?GIT_PUSH_TOKEN is required}"
-    volumes:
-      - repo-volume:/runner/repo
-    networks:
-      - sandbox_net
-    tty: true
-
-  runner-db:
-    platform: linux/amd64
-    build:
-      context: .
-      dockerfile: images/runner-db/Dockerfile
-      args:
-        - "RUNNER_REPO_URL=${RUNNER_DB_REPO_URL:?RUNNER_DB_REPO_URL is required}"
-        - "RUNNER_TOKEN=${RUNNER_DB_TOKEN:?RUNNER_DB_TOKEN is required}"
-        - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?GIT_PUSH_TOKEN is required}"
-        - RUNNER_NAME=ai-opencode-runner-db
-    container_name: ai_opencode_runner_db
-    environment:
-      - "RUNNER_REPO_URL=${RUNNER_DB_REPO_URL:?RUNNER_DB_REPO_URL is required}"
-      - "RUNNER_TOKEN=${RUNNER_DB_TOKEN:?RUNNER_DB_TOKEN is required}"
-      - RUNNER_NAME=ai-opencode-runner-db
-      - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?GIT_PUSH_TOKEN is required}"
-    volumes:
-      - repo-volume:/runner/repo
-    networks:
-      - sandbox_net
-    tty: true
+  # runner-e2e:
+  #   platform: linux/amd64
+  #   build:
+  #     context: .
+  #     dockerfile: images/runner-e2e/Dockerfile
+  #     args:
+  #       - "RUNNER_REPO_URL=${RUNNER_E2E_REPO_URL:?RUNNER_E2E_REPO_URL is required}"
+  #       - "RUNNER_TOKEN=${RUNNER_E2E_TOKEN:?RUNNER_E2E_TOKEN is required}"
+  #       - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?GIT_PUSH_TOKEN is required}"
+  #       - RUNNER_NAME=ai-opencode-runner-e2e
+  #   container_name: ai_opencode_runner_e2e
+  #   depends_on:
+  #     runner-node:
+  #       condition: service_completed_successfully
+  #   environment:
+  #     - "RUNNER_REPO_URL=${RUNNER_E2E_REPO_URL:?RUNNER_E2E_REPO_URL is required}"
+  #     - "RUNNER_TOKEN=${RUNNER_E2E_TOKEN:?RUNNER_E2E_TOKEN is required}"
+  #     - RUNNER_NAME=ai-opencode-runner-e2e
+  #     - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?GIT_PUSH_TOKEN is required}"
+  #   volumes:
+  #     - repo-volume:/runner/repo
+  #   networks:
+  #     - sandbox_net
+  #   tty: true
+  #
+  # runner-db:
+  #   platform: linux/amd64
+  #   build:
+  #     context: .
+  #     dockerfile: images/runner-db/Dockerfile
+  #     args:
+  #       - "RUNNER_REPO_URL=${RUNNER_DB_REPO_URL:?RUNNER_DB_REPO_URL is required}"
+  #       - "RUNNER_TOKEN=${RUNNER_DB_TOKEN:?RUNNER_DB_TOKEN is required}"
+  #       - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?GIT_PUSH_TOKEN is required}"
+  #       - RUNNER_NAME=ai-opencode-runner-db
+  #   container_name: ai_opencode_runner_db
+  #   environment:
+  #     - "RUNNER_REPO_URL=${RUNNER_DB_REPO_URL:?RUNNER_DB_REPO_URL is required}"
+  #     - "RUNNER_TOKEN=${RUNNER_DB_TOKEN:?RUNNER_DB_TOKEN is required}"
+  #     - RUNNER_NAME=ai-opencode-runner-db
+  #     - "GIT_PUSH_TOKEN=${GIT_PUSH_TOKEN:?GIT_PUSH_TOKEN is required}"
+  #   volumes:
+  #     - repo-volume:/runner/repo
+  #   networks:
+  #     - sandbox_net
+  #   tty: true
 
   # Backend runner (the real backend repo) — blocked until the
   # runner-owner token gets admin on that repo. Uncomment and
