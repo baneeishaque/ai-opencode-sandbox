@@ -28,7 +28,7 @@ services:
       - "GIT_USER_NAME=${GIT_USER_NAME:?GIT_USER_NAME is required}"
       - "GIT_USER_EMAIL=${GIT_USER_EMAIL:?GIT_USER_EMAIL is required}"
       - "BACKEND_PROJECT_DIR=${BACKEND_PROJECT_DIR:?BACKEND_PROJECT_DIR is required}"
-      - "OPENCODE_PLUGIN_DIR=${OPENCODE_PLUGIN_DIR:?OPENCODE_PLUGIN_DIR is required}"
+      - "OPENCODE_PLUGIN_DIR=${OPENCODE_PLUGIN_DIR:-}"
     volumes:
       - repo-volume:/workspace
     networks:

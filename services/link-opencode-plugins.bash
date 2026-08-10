@@ -2,7 +2,11 @@
 set -euo pipefail
 
 REPO_ROOT=/workspace
-PLUGIN_DIR=${OPENCODE_PLUGIN_DIR:?OPENCODE_PLUGIN_DIR is required — relative path from the ai-repo root to the opencode plugins folder}
+PLUGIN_DIR=${OPENCODE_PLUGIN_DIR:-}
+if [ -z "$PLUGIN_DIR" ]; then
+  echo "OPENCODE_PLUGIN_DIR unset — skipping plugin link (plugins are optional)"
+  exit 0
+fi
 [ "${PLUGIN_DIR#/}" = "$PLUGIN_DIR" ] \
   || { echo "ERROR: OPENCODE_PLUGIN_DIR must be relative to the ai-repo folder (got: $PLUGIN_DIR)" >&2; exit 1; }
 
