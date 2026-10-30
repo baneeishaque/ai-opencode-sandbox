@@ -8,7 +8,7 @@
 # then update the @sha256:... below. The runner tarball (2.336.0, downloaded
 # at runtime by entrypoint.bash) is checksum-verified against the SHA-256
 # GitHub now publishes in each release's notes.
-FROM ubuntu:22.04@sha256:3b06811b2afd352be909dd088a004166d665dc76d38b13eada33522a9d915c6f
+FROM ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c
 
 # All RUN steps use bash: set -o pipefail and brace-groups are bash-isms, and
 # Ubuntu /bin/sh is dash (which has neither). ENTRYPOINT already uses
