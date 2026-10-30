@@ -7,7 +7,7 @@
 # Base byte-frozen: debian:trixie-slim digest pin (freezes the exact base
 # layer). Bump discipline: docker buildx imagetools inspect debian:trixie-slim
 # then update the @sha256:... below.
-FROM debian:trixie-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
+FROM debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4
 
 # RUN steps use bash (see services-agent): /bin/sh is dash, no pipefail.
 SHELL ["/bin/bash", "-c"]
