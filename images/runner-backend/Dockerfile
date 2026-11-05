@@ -7,7 +7,7 @@
 # services-agent — same baked OS layer). Bump discipline:
 #   docker buildx imagetools inspect python:3.13.14-slim  # get new index digest
 # then update the @sha256:... below.
-FROM python:3.13.14-slim@sha256:9662417aace5ae7b8e2609cce472b72a8958e134ba372808abe9cc1a0c0125e6
+FROM python:3.15.2-slim@sha256:8c13a3f37a6a5b71498228e902c4b9f51c1f7900d49fabf71f9a650c6120e0d0
 
 # RUN steps use bash (see services-agent): /bin/sh is dash, no pipefail.
 SHELL ["/bin/bash", "-c"]
